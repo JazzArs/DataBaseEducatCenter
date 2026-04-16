@@ -121,17 +121,18 @@ CREATE TABLE IF NOT EXISTS study_group (
     course_id     BIGINT NOT NULL REFERENCES course(course_id) ON DELETE RESTRICT,
     program_id    BIGINT REFERENCES program(program_id) ON DELETE RESTRICT,
 
-    curator_staff_id    BIGINT REFERENCES admin_staff(user_id) ON DELETE RESTRICT,
-    curator_teacher_id BIGINT REFERENCES teacher(user_id) ON DELETE RESTRICT,
+    curator_staff_id   BIGINT REFERENCES admin_staff(user_id) ON DELETE RESTRICT,
+    curator_teacher_id BIGINT REFERENCES teacher(user_id)     ON DELETE RESTRICT,
 
-    -- куратор либо сотрудник, либо преподаватель
-    CONSTRAINT chk_curator_xor CHECK (
-      (curator_staff_id IS NULL) <> (curator_teacher_id IS NULL)
-    ),
+    -- куратор либо сотрудник, либо преподаватель (ровно одно из двух)
+    CONSTRAINT chk_curator_xor
+      CHECK ( (curator_staff_id IS NULL) <> (curator_teacher_id IS NULL) ),
 
-    -- преподаватель может курировать только одну группу
-    CONSTRAINT uq_teacher_curator UNIQUE (curator_teacher_id)
+    -- преподаватель может курировать максимум 1 группу в каждом (год, семестр)
+    CONSTRAINT uq_teacher_curator_per_term
+      UNIQUE (curator_teacher_id, academic_year, semester)
 );
+
 
 
 --E2 СЛУШАТЕЛЬ
@@ -139,7 +140,6 @@ CREATE TABLE IF NOT EXISTS student(
     user_id     BIGINT PRIMARY KEY
         REFERENCES account(user_id) ON DELETE RESTRICT,
     fio          VARCHAR(150) NOT NULL,
-    group_id    BIGINT NOT NULL REFERENCES study_group(group_id) ON DELETE RESTRICT,
     phone       VARCHAR(30),
     email       VARCHAR(254)
 );
@@ -178,6 +178,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_active_schedule
 ON schedule_version(academic_year, semester)
 WHERE is_active = TRUE;
 
+-- E22
 CREATE TABLE IF NOT EXISTS schedule_item (
   schedule_item_id     BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
   schedule_version_id  BIGINT NOT NULL REFERENCES schedule_version(schedule_version_id) ON DELETE CASCADE,
@@ -299,3 +300,18 @@ CREATE TABLE IF NOT EXISTS program_teacher (
     price       NUMERIC(10,2) NOT NULL CHECK (price >= 0),
     CONSTRAINT pk_program_teacher PRIMARY KEY (program_id, teacher_id)
 );
+
+-- E23
+CREATE TABLE IF NOT EXISTS student_group_enrollment (
+    enrollment_id BIGINT GENERATED ALWAYS AS IDENTITY PRIMARY KEY,
+    student_id    BIGINT NOT NULL REFERENCES student(user_id) ON DELETE RESTRICT,
+    group_id      BIGINT NOT NULL REFERENCES study_group(group_id) ON DELETE RESTRICT,
+    start_at      TIMESTAMP NOT NULL DEFAULT NOW(),
+    end_at        TIMESTAMP,
+    CHECK (end_at IS NULL OR end_at >= start_at)
+);
+
+-- у одного студента только одна активная группа
+CREATE UNIQUE INDEX uq_student_active_group
+ON student_group_enrollment(student_id)
+WHERE end_at IS NULL;
